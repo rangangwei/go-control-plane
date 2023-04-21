@@ -38,7 +38,7 @@ type LinearCache struct {
 	// Type URL specific to the cache.
 	typeURL string
 	// Collection of resources indexed by name.
-	resources map[string]types.Resource
+	resources map[string]types.ResourceWithTTL
 	// Watches open by clients, indexed by resource name. Whenever resources
 	// are changed, the watch is triggered.
 	watches map[string]watches
@@ -80,7 +80,7 @@ func WithVersionPrefix(prefix string) LinearCacheOption {
 }
 
 // WithInitialResources initializes the initial set of resources.
-func WithInitialResources(resources map[string]types.Resource) LinearCacheOption {
+func WithInitialResources(resources map[string]types.ResourceWithTTL) LinearCacheOption {
 	return func(cache *LinearCache) {
 		cache.resources = resources
 		for name := range resources {
@@ -99,7 +99,7 @@ func WithLogger(log log.Logger) LinearCacheOption {
 func NewLinearCache(typeURL string, opts ...LinearCacheOption) *LinearCache {
 	out := &LinearCache{
 		typeURL:       typeURL,
-		resources:     make(map[string]types.Resource),
+		resources:     make(map[string]types.ResourceWithTTL),
 		watches:       make(map[string]watches),
 		watchAll:      make(watches),
 		deltaWatches:  make(map[int64]DeltaResponseWatch),
@@ -119,14 +119,14 @@ func (cache *LinearCache) respond(value chan Response, staleResources []string) 
 	if len(staleResources) == 0 {
 		resources = make([]types.ResourceWithTTL, 0, len(cache.resources))
 		for _, resource := range cache.resources {
-			resources = append(resources, types.ResourceWithTTL{Resource: resource})
+			resources = append(resources, resource)
 		}
 	} else {
 		resources = make([]types.ResourceWithTTL, 0, len(staleResources))
 		for _, name := range staleResources {
 			resource := cache.resources[name]
-			if resource != nil {
-				resources = append(resources, types.ResourceWithTTL{Resource: resource})
+			if resource.Resource != nil {
+				resources = append(resources, resource)
 			}
 		}
 	}
@@ -191,8 +191,8 @@ func (cache *LinearCache) respondDelta(request *DeltaRequest, value chan DeltaRe
 }
 
 // UpdateResource updates a resource in the collection.
-func (cache *LinearCache) UpdateResource(name string, res types.Resource) error {
-	if res == nil {
+func (cache *LinearCache) UpdateResource(name string, res types.ResourceWithTTL) error {
+	if res.Resource == nil {
 		return errors.New("nil resource")
 	}
 	cache.mu.Lock()
@@ -225,7 +225,7 @@ func (cache *LinearCache) DeleteResource(name string) error {
 // UpdateResources updates/deletes a list of resources in the cache.
 // Calling UpdateResources instead of iterating on UpdateResource and DeleteResource
 // is significantly more efficient when using delta or wildcard watches.
-func (cache *LinearCache) UpdateResources(toUpdate map[string]types.Resource, toDelete []string) error {
+func (cache *LinearCache) UpdateResources(toUpdate map[string]types.ResourceWithTTL, toDelete []string) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -251,7 +251,7 @@ func (cache *LinearCache) UpdateResources(toUpdate map[string]types.Resource, to
 // SetResources replaces current resources with a new set of resources.
 // This function is useful for wildcard xDS subscriptions.
 // This way watches that are subscribed to all resources are triggered only once regardless of how many resources are changed.
-func (cache *LinearCache) SetResources(resources map[string]types.Resource) {
+func (cache *LinearCache) SetResources(resources map[string]types.ResourceWithTTL) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
@@ -280,17 +280,13 @@ func (cache *LinearCache) SetResources(resources map[string]types.Resource) {
 }
 
 // GetResources returns current resources stored in the cache
-func (cache *LinearCache) GetResources() map[string]types.Resource {
+func (cache *LinearCache) GetResources() map[string]types.ResourceWithTTL {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
 	// create a copy of our internal storage to avoid data races
 	// involving mutations of our backing map
-	resources := make(map[string]types.Resource, len(cache.resources))
-	for k, v := range cache.resources {
-		resources[k] = v
-	}
-	return resources
+	return cache.resources
 }
 
 func (cache *LinearCache) CreateWatch(request *Request, streamState stream.StreamState, value chan Response) func() {
@@ -414,7 +410,7 @@ func (cache *LinearCache) updateVersionMap(modified map[string]struct{}) error {
 			continue
 		}
 		// hash our version in here and build the version map
-		marshaledResource, err := MarshalResource(r)
+		marshaledResource, err := MarshalResource(r.Resource)
 		if err != nil {
 			return err
 		}

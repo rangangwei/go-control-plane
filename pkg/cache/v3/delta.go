@@ -23,7 +23,7 @@ import (
 
 // groups together resource-related arguments for the createDeltaResponse function
 type resourceContainer struct {
-	resourceMap   map[string]types.Resource
+	resourceMap   map[string]types.ResourceWithTTL
 	versionMap    map[string]string
 	systemVersion string
 }
@@ -31,14 +31,14 @@ type resourceContainer struct {
 func createDeltaResponse(ctx context.Context, req *DeltaRequest, state stream.StreamState, resources resourceContainer) *RawDeltaResponse {
 	// variables to build our response with
 	var nextVersionMap map[string]string
-	var filtered []types.Resource
+	var filtered []types.ResourceWithTTL
 	var toRemove []string
 
 	// If we are handling a wildcard request, we want to respond with all resources
 	switch {
 	case state.IsWildcard():
 		if len(state.GetResourceVersions()) == 0 {
-			filtered = make([]types.Resource, 0, len(resources.resourceMap))
+			filtered = make([]types.ResourceWithTTL, 0, len(resources.resourceMap))
 		}
 		nextVersionMap = make(map[string]string, len(resources.resourceMap))
 		for name, r := range resources.resourceMap {

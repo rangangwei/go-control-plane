@@ -144,7 +144,7 @@ type RawDeltaResponse struct {
 	SystemVersionInfo string
 
 	// Resources to be included in the response.
-	Resources []types.Resource
+	Resources []types.ResourceWithTTL
 
 	// RemovedResources is a list of resource aliases which should be dropped by the consuming client.
 	RemovedResources []string
@@ -237,8 +237,8 @@ func (r *RawDeltaResponse) GetDeltaDiscoveryResponse() (*discovery.DeltaDiscover
 		marshaledResources := make([]*discovery.Resource, len(r.Resources))
 
 		for i, resource := range r.Resources {
-			name := GetResourceName(resource)
-			marshaledResource, err := MarshalResource(resource)
+			name := GetResourceName(resource.Resource)
+			marshaledResource, err := MarshalResource(resource.Resource)
 			if err != nil {
 				return nil, err
 			}
@@ -253,6 +253,9 @@ func (r *RawDeltaResponse) GetDeltaDiscoveryResponse() (*discovery.DeltaDiscover
 					Value:   marshaledResource,
 				},
 				Version: version,
+			}
+			if resource.TTL != nil {
+				marshaledResources[i].Ttl = durationpb.New(*resource.TTL)
 			}
 		}
 
